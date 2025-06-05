@@ -45,6 +45,7 @@ export function ScannerScreen({
                     : currentCode;
 
                   if (token !== currentValue) {
+                    console.log(token, currentValue);
                     await updateCodeInSupabase(token);
                     toast({
                       title: "Code mis à jour",
@@ -100,18 +101,10 @@ export function ScannerScreen({
 
   const fetchPresenceData = useCallback(async () => {
     try {
-      console.log("ScannerScreen: Récupération des données de présence...");
       const remoteUsersData =
         await supabaseRealtimeService.getRemoteUsersCount();
       const remoteUsersPointedData =
         await supabaseRealtimeService.getRemoteUsersWithPointage();
-
-      console.log(
-        "ScannerScreen: Données récupérées - À distance:",
-        remoteUsersData,
-        "Ont pointé:",
-        remoteUsersPointedData
-      );
 
       if (remoteUsersData && remoteUsersPointedData) {
         const newRemoteUsers = {
@@ -119,16 +112,12 @@ export function ScannerScreen({
           pointed: remoteUsersPointedData.count,
         };
 
-        console.log("ScannerScreen: Mise à jour de l'état:", newRemoteUsers);
-
         setRemoteUsers(newRemoteUsers);
 
         // Tous les utilisateurs à distance ont pointé
         const newAllPointedStatus =
           remoteUsersData.count > 0 &&
           remoteUsersData.count === remoteUsersPointedData.count;
-
-        console.log("ScannerScreen: Tous ont pointé?", newAllPointedStatus);
 
         setAllPointedStatus(newAllPointedStatus);
       }
@@ -141,29 +130,22 @@ export function ScannerScreen({
   }, []);
 
   useEffect(() => {
-    console.log("ScannerScreen: Initialisation...");
     initQrScanner();
 
     // Récupération initiale des données de présence
     fetchPresenceData();
 
     // S'abonner aux mises à jour de présence
-    console.log("ScannerScreen: Abonnement aux mises à jour de présence...");
-    const unsubscribe = supabaseRealtimeService.onPresenceUpdate((payload) => {
-      console.log("ScannerScreen: Mise à jour de présence détectée", payload);
+    const unsubscribe = supabaseRealtimeService.onPresenceUpdate(() => {
       fetchPresenceData();
     });
 
     // Rafraîchir les données de présence toutes les 5 secondes
     const refreshInterval = setInterval(() => {
-      console.log(
-        "ScannerScreen: Rafraîchissement périodique des données de présence"
-      );
       fetchPresenceData();
     }, 5000);
 
     return () => {
-      console.log("ScannerScreen: Nettoyage...");
       stopQrScanner();
       unsubscribe();
       clearInterval(refreshInterval);
