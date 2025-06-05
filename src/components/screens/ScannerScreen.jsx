@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import QrScanner from "qr-scanner";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { formatDate } from "@/lib/utils";
+import supabaseRealtimeService from "@/services/supabaseRealtimeService";
 
 export function ScannerScreen({
   onModeChange,
@@ -17,6 +18,8 @@ export function ScannerScreen({
   const [isScanning, setIsScanning] = useState(false);
   const lastScanTime = useRef(0);
   const SCAN_COOLDOWN = 2000; // 2 secondes entre chaque scan
+  const [remoteUsers, setRemoteUsers] = useState({ total: 0, pointed: 0 });
+  const [allPointedStatus, setAllPointedStatus] = useState(false);
 
   const initQrScanner = async () => {
     if (videoRef.current && !qrScannerRef.current) {
@@ -95,12 +98,77 @@ export function ScannerScreen({
     setIsScanning(false);
   };
 
-  useEffect(() => {
-    initQrScanner();
-    return () => {
-      stopQrScanner();
-    };
+  const fetchPresenceData = useCallback(async () => {
+    try {
+      console.log("ScannerScreen: Récupération des données de présence...");
+      const remoteUsersData =
+        await supabaseRealtimeService.getRemoteUsersCount();
+      const remoteUsersPointedData =
+        await supabaseRealtimeService.getRemoteUsersWithPointage();
+
+      console.log(
+        "ScannerScreen: Données récupérées - À distance:",
+        remoteUsersData,
+        "Ont pointé:",
+        remoteUsersPointedData
+      );
+
+      if (remoteUsersData && remoteUsersPointedData) {
+        const newRemoteUsers = {
+          total: remoteUsersData.count,
+          pointed: remoteUsersPointedData.count,
+        };
+
+        console.log("ScannerScreen: Mise à jour de l'état:", newRemoteUsers);
+
+        setRemoteUsers(newRemoteUsers);
+
+        // Tous les utilisateurs à distance ont pointé
+        const newAllPointedStatus =
+          remoteUsersData.count > 0 &&
+          remoteUsersData.count === remoteUsersPointedData.count;
+
+        console.log("ScannerScreen: Tous ont pointé?", newAllPointedStatus);
+
+        setAllPointedStatus(newAllPointedStatus);
+      }
+    } catch (error) {
+      console.error(
+        "ScannerScreen: Erreur lors de la récupération des données de présence:",
+        error
+      );
+    }
   }, []);
+
+  useEffect(() => {
+    console.log("ScannerScreen: Initialisation...");
+    initQrScanner();
+
+    // Récupération initiale des données de présence
+    fetchPresenceData();
+
+    // S'abonner aux mises à jour de présence
+    console.log("ScannerScreen: Abonnement aux mises à jour de présence...");
+    const unsubscribe = supabaseRealtimeService.onPresenceUpdate((payload) => {
+      console.log("ScannerScreen: Mise à jour de présence détectée", payload);
+      fetchPresenceData();
+    });
+
+    // Rafraîchir les données de présence toutes les 5 secondes
+    const refreshInterval = setInterval(() => {
+      console.log(
+        "ScannerScreen: Rafraîchissement périodique des données de présence"
+      );
+      fetchPresenceData();
+    }, 5000);
+
+    return () => {
+      console.log("ScannerScreen: Nettoyage...");
+      stopQrScanner();
+      unsubscribe();
+      clearInterval(refreshInterval);
+    };
+  }, [fetchPresenceData]);
 
   return (
     <motion.div
@@ -149,6 +217,45 @@ export function ScannerScreen({
           </div>
         </div>
       </div>
+
+      {/* Affichage des utilisateurs à distance */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className={`rounded-xl p-6 text-white ${
+          allPointedStatus && remoteUsers.total > 0
+            ? "border-2 border-green-500 bg-green-500"
+            : "glass-effect"
+        }`}
+      >
+        <h3 className="text-lg font-semibold mb-3">Utilisateurs à distance</h3>
+        <div className="flex justify-between items-center bg-white/10 rounded-lg p-4 mb-3">
+          <div>
+            <p className="text-sm text-white/70">Total:</p>
+            <p className="text-xl font-semibold">{remoteUsers.total}</p>
+          </div>
+          <div>
+            <p className="text-sm text-white/70">Ont pointé:</p>
+            <p className="text-xl font-semibold">{remoteUsers.pointed}</p>
+          </div>
+          <div
+            className={`w-8 h-8 rounded-full flex items-center justify-center ${
+              allPointedStatus && remoteUsers.total > 0
+                ? "bg-green-600 text-white"
+                : "bg-yellow-500/50 text-white/70"
+            }`}
+          >
+            {allPointedStatus && remoteUsers.total > 0 ? "✓" : "!"}
+          </div>
+        </div>
+        <p className="text-sm text-center">
+          {remoteUsers.total === 0
+            ? "Aucun utilisateur à distance"
+            : allPointedStatus
+            ? "Tous les utilisateurs à distance ont pointé"
+            : `${remoteUsers.pointed}/${remoteUsers.total} utilisateurs ont pointé`}
+        </p>
+      </motion.div>
 
       {currentCode && (
         <motion.div

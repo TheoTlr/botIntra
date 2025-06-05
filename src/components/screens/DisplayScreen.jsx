@@ -1,17 +1,35 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { QrCode, Clock, Check } from "lucide-react";
+import { QrCode, Clock, Check, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import supabaseRealtimeService from "@/services/supabaseRealtimeService";
 
 export function DisplayScreen({ onModeChange, currentCode, lastUpdate }) {
   const [copied, setCopied] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const { user } = useAuth();
 
   const handleCopy = async () => {
     if (currentCode) {
       await navigator.clipboard.writeText(currentCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleConfirmPointage = async () => {
+    if (!user) return;
+
+    setConfirming(true);
+    try {
+      await supabaseRealtimeService.confirmUserPointage(user.id);
+      // Laisser le toast s'afficher avant de réinitialiser l'état
+      setTimeout(() => setConfirming(false), 2000);
+    } catch (error) {
+      console.error("Erreur lors de la confirmation du pointage:", error);
+      setConfirming(false);
     }
   };
 
@@ -79,6 +97,23 @@ export function DisplayScreen({ onModeChange, currentCode, lastUpdate }) {
           </div>
         )}
       </div>
+
+      <Button
+        onClick={handleConfirmPointage}
+        disabled={confirming || !user}
+        className="w-full glass-effect bg-green-600 hover:bg-green-700 text-white border-green-500/20 h-14"
+      >
+        {confirming ? (
+          <div className="flex items-center justify-center gap-2">
+            <span className="animate-pulse">Confirmation en cours...</span>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center gap-2">
+            <CheckCircle className="w-5 h-5" />
+            <span>Confirmer ma présence</span>
+          </div>
+        )}
+      </Button>
 
       <div className="glass-effect rounded-xl p-4">
         <div className="flex items-center justify-center gap-3 text-white">

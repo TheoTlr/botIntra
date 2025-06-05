@@ -5,6 +5,7 @@ class SupabaseRealtimeService {
   channel = null;
   codeUpdateCallbacks = [];
   connectionStatusCallbacks = [];
+  presenceCallbacks = [];
 
   initialize(
     initialCodeSetter,
@@ -105,33 +106,62 @@ class SupabaseRealtimeService {
       return;
     }
 
-    this.channel = supabase.channel(`realtime:code`).on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "code",
-        config: {
-          broadcast: {
-            self: true,
+    this.channel = supabase
+      .channel(`realtime:code`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "code",
+          config: {
+            broadcast: {
+              self: true,
+            },
           },
         },
-      },
-      (payload) => {
-        if (payload.new) {
-          console.log("RealtimeService: Code updated via channel", payload.new);
-          codeSetter(payload.new.code_value);
-          lastUpdateSetter(new Date(payload.new.updated_at));
-          this.codeUpdateCallbacks.forEach((cb) =>
-            cb(payload.new.code_value, new Date(payload.new.updated_at))
+        (payload) => {
+          if (payload.new) {
+            console.log(
+              "RealtimeService: Code updated via channel",
+              payload.new
+            );
+            codeSetter(payload.new.code_value);
+            lastUpdateSetter(new Date(payload.new.updated_at));
+            this.codeUpdateCallbacks.forEach((cb) =>
+              cb(payload.new.code_value, new Date(payload.new.updated_at))
+            );
+            toast({
+              title: "Code mis à jour (Service)!",
+              description: `Nouveau code: ${payload.new.code_value}`,
+            });
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "presence",
+          config: {
+            broadcast: {
+              self: true,
+            },
+          },
+        },
+        (payload) => {
+          console.log("RealtimeService: Présence mise à jour:", payload);
+          console.log(
+            "RealtimeService: Nombre de callbacks à notifier:",
+            this.presenceCallbacks.length
           );
-          toast({
-            title: "Code mis à jour (Service)!",
-            description: `Nouveau code: ${payload.new.code_value}`,
+          this.presenceCallbacks.forEach((cb) => {
+            console.log("RealtimeService: Exécution d'un callback de présence");
+            cb(payload);
           });
         }
-      }
-    );
+      );
 
     if (!this.channel.subscribed) {
       this.channel.subscribe((status, err) => {
@@ -197,6 +227,27 @@ class SupabaseRealtimeService {
     };
   }
 
+  onPresenceUpdate(callback) {
+    console.log(
+      "RealtimeService: Enregistrement d'un nouveau callback de présence"
+    );
+    this.presenceCallbacks.push(callback);
+    console.log(
+      "RealtimeService: Nombre de callbacks de présence:",
+      this.presenceCallbacks.length
+    );
+    return () => {
+      console.log("RealtimeService: Suppression d'un callback de présence");
+      this.presenceCallbacks = this.presenceCallbacks.filter(
+        (cb) => cb !== callback
+      );
+      console.log(
+        "RealtimeService: Nombre de callbacks de présence restants:",
+        this.presenceCallbacks.length
+      );
+    };
+  }
+
   async updateCode(newCode) {
     try {
       const { data, error } = await supabase
@@ -231,6 +282,208 @@ class SupabaseRealtimeService {
     }
   }
 
+  async updateUserPresence(userId, isPresent) {
+    try {
+      console.log(
+        "Mise à jour de la présence pour:",
+        userId,
+        "Présent:",
+        isPresent
+      );
+
+      // Vérifier d'abord si l'utilisateur existe déjà dans la table presence
+      const { data: existingUser, error: checkError } = await supabase
+        .from("presence")
+        .select("user_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      let result;
+
+      if (existingUser) {
+        // Si l'utilisateur existe, mettre à jour sa présence
+        console.log("Utilisateur existant, mise à jour...");
+        const { data, error } = await supabase
+          .from("presence")
+          .update({
+            present: isPresent,
+            a_pointe: false,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("user_id", userId)
+          .select();
+
+        if (error) {
+          console.error("RealtimeService: Error updating presence:", error);
+          throw error;
+        }
+
+        result = data;
+      } else {
+        // Si l'utilisateur n'existe pas, l'insérer
+        console.log("Nouvel utilisateur, insertion...");
+        const { data, error } = await supabase
+          .from("presence")
+          .insert({
+            user_id: userId,
+            nom: "Utilisateur", // Valeur par défaut pour respecter la contrainte NOT NULL
+            present: isPresent,
+            a_pointe: false,
+            updated_at: new Date().toISOString(),
+          })
+          .select();
+
+        if (error) {
+          console.error("RealtimeService: Error inserting presence:", error);
+          throw error;
+        }
+
+        result = data;
+      }
+
+      // Vérifier que les données ont été retournées
+      console.log("Réponse Supabase pour la présence:", result);
+
+      toast({
+        title: "Présence mise à jour",
+        description: isPresent
+          ? "Vous êtes marqué comme présent."
+          : "Vous êtes marqué comme absent.",
+      });
+
+      return result;
+    } catch (err) {
+      console.error("RealtimeService: Catch updating presence:", err);
+      toast({
+        title: "Erreur critique présence",
+        description:
+          "Une erreur inattendue s'est produite lors de la mise à jour de votre présence.",
+        variant: "destructive",
+      });
+      return null;
+    }
+  }
+
+  async confirmUserPointage(userId) {
+    try {
+      console.log("Confirmation du pointage pour:", userId);
+
+      // Mettre à jour a_pointe à true
+      const { data, error } = await supabase
+        .from("presence")
+        .update({
+          a_pointe: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
+        .select();
+
+      if (error) {
+        console.error("RealtimeService: Error confirming pointage:", error);
+        toast({
+          title: "Erreur de confirmation",
+          description: "Impossible de confirmer votre pointage.",
+          variant: "destructive",
+        });
+        return null;
+      }
+
+      // Vérifier que les données ont été retournées
+      console.log("Réponse Supabase pour le pointage:", data);
+
+      toast({
+        title: "Pointage confirmé",
+        description: "Votre présence a été confirmée avec succès.",
+      });
+
+      return data;
+    } catch (err) {
+      console.error("RealtimeService: Catch confirming pointage:", err);
+      toast({
+        title: "Erreur critique pointage",
+        description:
+          "Une erreur inattendue s'est produite lors de la confirmation de votre pointage.",
+        variant: "destructive",
+      });
+      return null;
+    }
+  }
+
+  async getPresenceData() {
+    try {
+      const { data, error } = await supabase
+        .from("presence")
+        .select("*")
+        .order("updated_at", { ascending: false });
+
+      if (error) {
+        console.error("RealtimeService: Error fetching presence data:", error);
+        toast({
+          title: "Erreur de chargement",
+          description: "Impossible de récupérer les données de présence.",
+          variant: "destructive",
+        });
+        return null;
+      }
+
+      return data;
+    } catch (err) {
+      console.error("RealtimeService: Catch fetching presence data:", err);
+      toast({
+        title: "Erreur critique (Service)",
+        description:
+          "Une erreur inattendue s'est produite lors du chargement des données de présence.",
+        variant: "destructive",
+      });
+      return null;
+    }
+  }
+
+  async getRemoteUsersCount() {
+    try {
+      const { data, error, count } = await supabase
+        .from("presence")
+        .select("*", { count: "exact" })
+        .eq("present", false);
+
+      if (error) {
+        console.error("RealtimeService: Error counting remote users:", error);
+        return { count: 0, error };
+      }
+
+      return { count: count || 0, data };
+    } catch (err) {
+      console.error("RealtimeService: Catch counting remote users:", err);
+      return { count: 0, error: err };
+    }
+  }
+
+  async getRemoteUsersWithPointage() {
+    try {
+      const { data, error, count } = await supabase
+        .from("presence")
+        .select("*", { count: "exact" })
+        .eq("present", false)
+        .eq("a_pointe", true);
+
+      if (error) {
+        console.error(
+          "RealtimeService: Error counting remote users with pointage:",
+          error
+        );
+        return { count: 0, error };
+      }
+
+      return { count: count || 0, data };
+    } catch (err) {
+      console.error(
+        "RealtimeService: Catch counting remote users with pointage:",
+        err
+      );
+      return { count: 0, error: err };
+    }
+  }
+
   cleanup() {
     if (this.channel) {
       try {
@@ -245,6 +498,7 @@ class SupabaseRealtimeService {
     }
     this.codeUpdateCallbacks = [];
     this.connectionStatusCallbacks = [];
+    this.presenceCallbacks = [];
     console.log("RealtimeService: Cleaned up.");
   }
 }

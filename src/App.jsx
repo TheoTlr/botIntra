@@ -24,6 +24,18 @@ function App() {
   const { user, loading: authLoading, logout } = useAuth();
 
   useEffect(() => {
+    // Vérifier les paramètres URL pour le mode
+    const urlParams = new URLSearchParams(window.location.search);
+    const modeParam = urlParams.get("mode");
+
+    if (modeParam && ["home", "scanner", "display"].includes(modeParam)) {
+      setMode(modeParam);
+      // Nettoyer l'URL après avoir récupéré le paramètre
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
     // The useQrCodeData hook now handles its own initialization via the service
     // We just need to manage the global loading state
     const initializeApp = async () => {
@@ -46,7 +58,7 @@ function App() {
     return () => {
       supabaseRealtimeService.cleanup();
     };
-  }, [fetchInitialCode, user, authLoading]); // fetchInitialCode is stable from useCallback
+  }, [user, authLoading, fetchInitialCode]);
 
   const handleModeChange = (newMode) => {
     setMode(newMode);
