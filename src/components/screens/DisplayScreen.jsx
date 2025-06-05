@@ -1,6 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { QrCode, Clock, Check, CheckCircle } from "lucide-react";
+import {
+  QrCode,
+  Clock,
+  Check,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,13 +16,79 @@ import supabaseRealtimeService from "@/services/supabaseRealtimeService";
 export function DisplayScreen({ onModeChange, currentCode, lastUpdate }) {
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [hasPointed, setHasPointed] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [confirmStep, setConfirmStep] = useState(0); // 0: êtes-vous prêt?, 1: confirmer, 2: annuler
   const { user } = useAuth();
+
+  useEffect(() => {
+    // Vérifier le statut de pointage et ready de l'utilisateur au chargement
+    const checkUserStatus = async () => {
+      if (!user) return;
+
+      try {
+        const { a_pointe } =
+          await supabaseRealtimeService.getUserPointageStatus(user.id);
+
+        if (a_pointe) {
+          // Si déjà pointé, passer à l'étape d'annulation
+          setHasPointed(true);
+          setConfirmStep(2);
+        } else {
+          // Sinon, commencer par "Êtes-vous prêt?"
+          setHasPointed(false);
+
+          // Mettre ready à false au chargement initial
+          await supabaseRealtimeService.setUserReady(user.id, false);
+          setIsReady(false);
+          setConfirmStep(0);
+        }
+      } catch (error) {
+        console.error("Erreur lors de la vérification des statuts:", error);
+      }
+    };
+
+    checkUserStatus();
+
+    // S'abonner aux mises à jour de présence
+    const unsubscribe = supabaseRealtimeService.onPresenceUpdate(() => {
+      if (user) {
+        // Vérifier le statut de pointage
+        supabaseRealtimeService
+          .getUserPointageStatus(user.id)
+          .then(({ a_pointe }) => {
+            setHasPointed(a_pointe);
+            if (a_pointe) {
+              setConfirmStep(2);
+            }
+          })
+          .catch((error) =>
+            console.error("Erreur lors de la mise à jour du statut:", error)
+          );
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user]);
 
   const handleCopy = async () => {
     if (currentCode) {
-      await navigator.clipboard.writeText(currentCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        await navigator.clipboard.writeText(currentCode);
+        setCopied(true);
+
+        // Utiliser une promesse au lieu d'un timeout arbitraire
+        await new Promise((resolve) => {
+          // On garde un délai minimal pour l'UX
+          setTimeout(resolve, 1500);
+        });
+        setCopied(false);
+      } catch (error) {
+        console.error("Erreur lors de la copie:", error);
+        setCopied(false);
+      }
     }
   };
 
@@ -24,12 +97,78 @@ export function DisplayScreen({ onModeChange, currentCode, lastUpdate }) {
 
     setConfirming(true);
     try {
-      await supabaseRealtimeService.confirmUserPointage(user.id);
-      // Laisser le toast s'afficher avant de réinitialiser l'état
-      setTimeout(() => setConfirming(false), 2000);
+      if (confirmStep === 0) {
+        // Première étape: l'utilisateur confirme qu'il est prêt
+        await supabaseRealtimeService.setUserReady(user.id, true);
+        setIsReady(true);
+        setConfirmStep(1);
+        setConfirming(false);
+        return;
+      } else if (confirmStep === 1) {
+        // Deuxième étape: confirmer le pointage
+        await supabaseRealtimeService.confirmUserPointage(user.id);
+        setHasPointed(true);
+        setConfirmStep(2);
+        setConfirming(false);
+      } else if (confirmStep === 2) {
+        // Troisième étape: annuler le pointage
+        await supabaseRealtimeService.cancelUserPointage(user.id);
+        await supabaseRealtimeService.setUserReady(user.id, false);
+        setHasPointed(false);
+        setIsReady(false);
+        setConfirmStep(0);
+        setConfirming(false);
+      }
     } catch (error) {
-      console.error("Erreur lors de la confirmation du pointage:", error);
+      console.error("Erreur lors de la gestion du pointage:", error);
       setConfirming(false);
+    }
+  };
+
+  const getButtonText = () => {
+    if (confirming) {
+      return "Confirmation en cours...";
+    }
+
+    switch (confirmStep) {
+      case 0:
+        return "Êtes-vous prêt ?";
+      case 1:
+        return "Confirmer ma présence";
+      case 2:
+        return "Annuler ma présence";
+      default:
+        return "Êtes-vous prêt ?";
+    }
+  };
+
+  const getButtonIcon = () => {
+    if (confirming) {
+      return null;
+    }
+
+    switch (confirmStep) {
+      case 0:
+        return <AlertTriangle className="w-5 h-5" />;
+      case 1:
+        return <CheckCircle className="w-5 h-5" />;
+      case 2:
+        return <XCircle className="w-5 h-5" />;
+      default:
+        return <AlertTriangle className="w-5 h-5" />;
+    }
+  };
+
+  const getButtonClass = () => {
+    switch (confirmStep) {
+      case 0:
+        return "bg-yellow-600 hover:bg-yellow-700 border-yellow-500/20";
+      case 1:
+        return "bg-green-600 hover:bg-green-700 border-green-500/20";
+      case 2:
+        return "bg-red-600 hover:bg-red-700 border-red-500/20";
+      default:
+        return "bg-yellow-600 hover:bg-yellow-700 border-yellow-500/20";
     }
   };
 
@@ -101,7 +240,7 @@ export function DisplayScreen({ onModeChange, currentCode, lastUpdate }) {
       <Button
         onClick={handleConfirmPointage}
         disabled={confirming || !user}
-        className="w-full glass-effect bg-green-600 hover:bg-green-700 text-white border-green-500/20 h-14"
+        className={`w-full glass-effect ${getButtonClass()} text-white h-14`}
       >
         {confirming ? (
           <div className="flex items-center justify-center gap-2">
@@ -109,8 +248,8 @@ export function DisplayScreen({ onModeChange, currentCode, lastUpdate }) {
           </div>
         ) : (
           <div className="flex items-center justify-center gap-2">
-            <CheckCircle className="w-5 h-5" />
-            <span>Confirmer ma présence</span>
+            {getButtonIcon()}
+            <span>{getButtonText()}</span>
           </div>
         )}
       </Button>

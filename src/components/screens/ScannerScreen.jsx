@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { formatDate } from "@/lib/utils";
 import supabaseRealtimeService from "@/services/supabaseRealtimeService";
+import { ChevronDown, ChevronUp, Check, X } from "lucide-react";
 
 export function ScannerScreen({
   onModeChange,
@@ -18,8 +19,14 @@ export function ScannerScreen({
   const [isScanning, setIsScanning] = useState(false);
   const lastScanTime = useRef(0);
   const SCAN_COOLDOWN = 2000; // 2 secondes entre chaque scan
-  const [remoteUsers, setRemoteUsers] = useState({ total: 0, pointed: 0 });
+  const [remoteUsers, setRemoteUsers] = useState({
+    total: 0,
+    pointed: 0,
+    ready: 0,
+  });
   const [allPointedStatus, setAllPointedStatus] = useState(false);
+  const [showUsersList, setShowUsersList] = useState(false);
+  const [remoteUsersList, setRemoteUsersList] = useState([]);
 
   const initQrScanner = async () => {
     if (videoRef.current && !qrScannerRef.current) {
@@ -103,21 +110,29 @@ export function ScannerScreen({
     try {
       const remoteUsersData =
         await supabaseRealtimeService.getRemoteUsersCount();
+      const remoteUsersReadyData =
+        await supabaseRealtimeService.getRemoteUsersReady();
       const remoteUsersPointedData =
         await supabaseRealtimeService.getRemoteUsersWithPointage();
 
-      if (remoteUsersData && remoteUsersPointedData) {
+      if (remoteUsersData && remoteUsersReadyData && remoteUsersPointedData) {
         const newRemoteUsers = {
           total: remoteUsersData.count,
           pointed: remoteUsersPointedData.count,
+          ready: remoteUsersReadyData.readyCount,
         };
 
         setRemoteUsers(newRemoteUsers);
 
+        // Stocker la liste des utilisateurs à distance
+        if (remoteUsersData.data) {
+          setRemoteUsersList(remoteUsersData.data);
+        }
+
         // Tous les utilisateurs à distance ont pointé
         const newAllPointedStatus =
           remoteUsersData.count > 0 &&
-          remoteUsersData.count === remoteUsersPointedData.count;
+          remoteUsersPointedData.count === remoteUsersData.count;
 
         setAllPointedStatus(newAllPointedStatus);
       }
@@ -237,6 +252,67 @@ export function ScannerScreen({
             ? "Tous les utilisateurs à distance ont pointé"
             : `${remoteUsers.pointed}/${remoteUsers.total} utilisateurs ont pointé`}
         </p>
+
+        {remoteUsers.total > 0 && (
+          <div className="mt-4">
+            <Button
+              onClick={() => setShowUsersList(!showUsersList)}
+              variant="outline"
+              className="w-full flex items-center justify-center gap-2 glass-effect text-white border-white/20 hover:bg-white/20"
+            >
+              {showUsersList ? "Masquer la liste" : "Afficher la liste"}
+              {showUsersList ? (
+                <ChevronUp size={16} />
+              ) : (
+                <ChevronDown size={16} />
+              )}
+            </Button>
+
+            {showUsersList && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-3 bg-white/10 rounded-lg p-2 max-h-60 overflow-y-auto"
+              >
+                <ul className="space-y-2">
+                  {remoteUsersList.map((user) => (
+                    <li
+                      key={user.user_id}
+                      className="flex items-center justify-between p-2 rounded-md bg-white/5 hover:bg-white/10"
+                    >
+                      <span className="font-medium">
+                        {user.nom || `Utilisateur ${user.user_id.slice(0, 6)}`}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`px-2 py-1 text-xs rounded ${
+                            !user.present && user.ready
+                              ? "bg-green-500/50 text-white"
+                              : "bg-gray-500/30 text-white/50"
+                          }`}
+                        >
+                          {!user.present && user.ready ? "Prêt" : "Pas Prêt"}
+                        </div>
+                        <div
+                          className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                            user.a_pointe ? "bg-green-100" : "bg-red-500"
+                          }`}
+                        >
+                          {user.a_pointe ? (
+                            <Check size={16} className="text-green-800" />
+                          ) : (
+                            <X size={16} className="text-red-100" />
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </motion.div>
+            )}
+          </div>
+        )}
       </motion.div>
 
       {currentCode && (

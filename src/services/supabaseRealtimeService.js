@@ -131,10 +131,12 @@ class SupabaseRealtimeService {
             this.codeUpdateCallbacks.forEach((cb) =>
               cb(payload.new.code_value, new Date(payload.new.updated_at))
             );
-            toast({
-              title: "Code mis à jour (Service)!",
-              description: `Nouveau code: ${payload.new.code_value}`,
-            });
+            if (payload.new.code_value) {
+              toast({
+                title: "Code mis à jour (Service)!",
+                description: `Nouveau code: ${payload.new.code_value}`,
+              });
+            }
           }
         }
       )
@@ -481,6 +483,208 @@ class SupabaseRealtimeService {
         err
       );
       return { count: 0, error: err };
+    }
+  }
+
+  async getRemoteUsersReady() {
+    try {
+      // Récupérer les utilisateurs à distance qui sont prêts (present=false, ready=true)
+      const {
+        data: readyData,
+        error: readyError,
+        count: readyCount,
+      } = await supabase
+        .from("presence")
+        .select("*", { count: "exact" })
+        .eq("present", false)
+        .eq("ready", true);
+
+      // Récupérer les utilisateurs à distance qui ne sont pas prêts (present=false, ready=false)
+      const {
+        data: notReadyData,
+        error: notReadyError,
+        count: notReadyCount,
+      } = await supabase
+        .from("presence")
+        .select("*", { count: "exact" })
+        .eq("present", false)
+        .eq("ready", false);
+
+      if (readyError || notReadyError) {
+        console.error(
+          "RealtimeService: Error counting remote users ready status:",
+          readyError || notReadyError
+        );
+        return {
+          readyCount: 0,
+          notReadyCount: 0,
+          error: readyError || notReadyError,
+        };
+      }
+
+      console.log(
+        "RealtimeService: Utilisateurs prêts:",
+        readyCount,
+        "Non prêts:",
+        notReadyCount
+      );
+
+      return {
+        readyCount: readyCount || 0,
+        notReadyCount: notReadyCount || 0,
+        data: readyData,
+      };
+    } catch (err) {
+      console.error(
+        "RealtimeService: Catch counting remote users ready status:",
+        err
+      );
+      return { readyCount: 0, notReadyCount: 0, error: err };
+    }
+  }
+
+  async getUserPointageStatus(userId) {
+    try {
+      console.log("Vérification du statut de pointage pour:", userId);
+
+      const { data, error } = await supabase
+        .from("presence")
+        .select("a_pointe")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (error) {
+        console.error(
+          "RealtimeService: Error checking pointage status:",
+          error
+        );
+        return { a_pointe: false, error };
+      }
+
+      return { a_pointe: data?.a_pointe || false, data };
+    } catch (err) {
+      console.error("RealtimeService: Catch checking pointage status:", err);
+      return { a_pointe: false, error: err };
+    }
+  }
+
+  async cancelUserPointage(userId) {
+    try {
+      console.log("Annulation du pointage pour:", userId);
+
+      // Mettre à jour a_pointe à false
+      const { data, error } = await supabase
+        .from("presence")
+        .update({
+          a_pointe: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
+        .select();
+
+      if (error) {
+        console.error("RealtimeService: Error canceling pointage:", error);
+        toast({
+          title: "Erreur d'annulation",
+          description: "Impossible d'annuler votre pointage.",
+          variant: "destructive",
+        });
+        return null;
+      }
+
+      // Vérifier que les données ont été retournées
+      console.log("Réponse Supabase pour l'annulation du pointage:", data);
+
+      toast({
+        title: "Pointage annulé",
+        description:
+          "L'annulation de votre présence a été effectuée avec succès.",
+      });
+
+      return data;
+    } catch (err) {
+      console.error("RealtimeService: Catch canceling pointage:", err);
+      toast({
+        title: "Erreur critique d'annulation",
+        description:
+          "Une erreur inattendue s'est produite lors de l'annulation de votre pointage.",
+        variant: "destructive",
+      });
+      return null;
+    }
+  }
+
+  async setUserReady(userId, isReady) {
+    try {
+      console.log(
+        "Mise à jour du statut 'ready' pour:",
+        userId,
+        "Ready:",
+        isReady
+      );
+
+      const { data, error } = await supabase
+        .from("presence")
+        .update({
+          ready: isReady,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
+        .select();
+
+      if (error) {
+        console.error("RealtimeService: Error updating ready status:", error);
+        toast({
+          title: "Erreur de mise à jour",
+          description:
+            "Impossible de mettre à jour votre statut de préparation.",
+          variant: "destructive",
+        });
+        return null;
+      }
+
+      // Vérifier que les données ont été retournées
+      console.log("Réponse Supabase pour le statut 'ready':", data);
+
+      toast({
+        title: isReady ? "Vous êtes prêt" : "Statut mis à jour",
+        description: isReady
+          ? "Votre statut de préparation a été confirmé."
+          : "Votre statut a été mis à jour.",
+      });
+
+      return data;
+    } catch (err) {
+      console.error("RealtimeService: Catch updating ready status:", err);
+      toast({
+        title: "Erreur critique",
+        description:
+          "Une erreur inattendue s'est produite lors de la mise à jour de votre statut.",
+        variant: "destructive",
+      });
+      return null;
+    }
+  }
+
+  async getUserReadyStatus(userId) {
+    try {
+      console.log("Vérification du statut 'ready' pour:", userId);
+
+      const { data, error } = await supabase
+        .from("presence")
+        .select("ready")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("RealtimeService: Error checking ready status:", error);
+        return { ready: false, error };
+      }
+
+      return { ready: data?.ready || false, data };
+    } catch (err) {
+      console.error("RealtimeService: Catch checking ready status:", err);
+      return { ready: false, error: err };
     }
   }
 
