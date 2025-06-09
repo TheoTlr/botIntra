@@ -27,6 +27,7 @@ export function ScannerScreen({
   const [allPointedStatus, setAllPointedStatus] = useState(false);
   const [showUsersList, setShowUsersList] = useState(false);
   const [remoteUsersList, setRemoteUsersList] = useState([]);
+  const [lastScannedToken, setLastScannedToken] = useState(null);
 
   const initQrScanner = async () => {
     if (videoRef.current && !qrScannerRef.current) {
@@ -46,14 +47,11 @@ export function ScannerScreen({
                 const token = url.searchParams.get("token");
 
                 if (token) {
-                  const { data: currentDBData } = await fetchInitialCode();
-                  const currentValue = currentDBData
-                    ? currentDBData.code_value
-                    : currentCode;
-
-                  if (token !== currentValue) {
-                    console.log(token, currentValue);
+                  // Comparer avec le dernier token scanné ou le code actuel
+                  if (token !== lastScannedToken && token !== currentCode) {
+                    console.log(token, currentCode);
                     await updateCodeInSupabase(token);
+                    setLastScannedToken(token);
                     toast({
                       title: "Code mis à jour",
                       description:
@@ -96,6 +94,13 @@ export function ScannerScreen({
       }
     }
   };
+
+  // Initialiser le lastScannedToken avec le code actuel au montage du composant
+  useEffect(() => {
+    if (currentCode) {
+      setLastScannedToken(currentCode);
+    }
+  }, [currentCode]);
 
   const stopQrScanner = () => {
     if (qrScannerRef.current) {
