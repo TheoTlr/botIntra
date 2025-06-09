@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   QrCode,
@@ -20,6 +20,67 @@ export function DisplayScreen({ onModeChange, currentCode, lastUpdate }) {
   const [isReady, setIsReady] = useState(false);
   const [confirmStep, setConfirmStep] = useState(0); // 0: êtes-vous prêt?, 1: confirmer, 2: annuler
   const { user } = useAuth();
+  const prevCodeRef = useRef(null);
+  const notificationSound = useRef(null);
+  const [isRecent, setIsRecent] = useState(false);
+
+  useEffect(() => {
+    // Créer l'élément audio pour la notification
+    notificationSound.current = new Audio("/notification.mp3");
+
+    return () => {
+      // Nettoyer la référence
+      notificationSound.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Notifier si un nouveau code arrive (différent du précédent)
+    if (currentCode && prevCodeRef.current !== currentCode) {
+      notifyNewCode();
+      prevCodeRef.current = currentCode;
+    }
+  }, [currentCode]);
+
+  useEffect(() => {
+    // Vérifier si la mise à jour est récente (moins de 15 secondes)
+    if (!lastUpdate) {
+      setIsRecent(false);
+      return;
+    }
+
+    const checkIfRecent = () => {
+      const now = new Date();
+      const updateTime = new Date(lastUpdate);
+      const diffInSeconds = (now - updateTime) / 1000;
+      setIsRecent(diffInSeconds < 15);
+    };
+
+    // Vérifier immédiatement
+    checkIfRecent();
+
+    // Puis vérifier toutes les secondes
+    const interval = setInterval(checkIfRecent, 1000);
+
+    return () => clearInterval(interval);
+  }, [lastUpdate]);
+
+  // Fonction pour jouer son et vibration quand un nouveau code arrive
+  const notifyNewCode = () => {
+    // Jouer le son
+    if (notificationSound.current) {
+      notificationSound.current
+        .play()
+        .catch((err) =>
+          console.error("Erreur lors de la lecture du son:", err)
+        );
+    }
+
+    // Faire vibrer si l'API est disponible
+    if (navigator.vibrate) {
+      navigator.vibrate(300);
+    }
+  };
 
   useEffect(() => {
     // Vérifier le statut de pointage et ready de l'utilisateur au chargement
@@ -222,7 +283,15 @@ export function DisplayScreen({ onModeChange, currentCode, lastUpdate }) {
                     Dernière mise à jour
                   </span>
                 </div>
-                <p className="text-lg font-mono">{formatDate(lastUpdate)}</p>
+                <p
+                  className={`text-lg font-mono ${
+                    isRecent
+                      ? "px-2 py-1 rounded-md bg-green-500/20 border border-green-500/50 inline-block"
+                      : "px-2 py-1 rounded-md bg-red-500/20 border border-red-500/50 inline-block"
+                  }`}
+                >
+                  {formatDate(lastUpdate)}
+                </p>
               </div>
             )}
           </motion.div>
@@ -240,7 +309,7 @@ export function DisplayScreen({ onModeChange, currentCode, lastUpdate }) {
       <Button
         onClick={handleConfirmPointage}
         disabled={confirming || !user}
-        className={`w-full glass-effect ${getButtonClass()} text-white h-14`}
+        className={`w-full  ${getButtonClass()} text-white h-14`}
       >
         {confirming ? (
           <div className="flex items-center justify-center gap-2">
@@ -253,13 +322,6 @@ export function DisplayScreen({ onModeChange, currentCode, lastUpdate }) {
           </div>
         )}
       </Button>
-
-      <div className="glass-effect rounded-xl p-4">
-        <div className="flex items-center justify-center gap-3 text-white">
-          <div className="w-3 h-3 bg-green-400 rounded-full pulse-blue"></div>
-          <span className="text-sm font-medium">Écoute temps réel active</span>
-        </div>
-      </div>
 
       <Button
         onClick={() => onModeChange("home")}

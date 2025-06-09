@@ -320,28 +320,6 @@ export function ScannerScreen({
         )}
       </motion.div>
 
-      {currentCode && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="glass-effect rounded-xl p-6 text-white"
-        >
-          <h3 className="text-lg font-semibold mb-3">
-            Code Actuel (Base de données)
-          </h3>
-          <div className="bg-white/10 rounded-lg p-4 mb-3">
-            <p className="text-xl font-mono text-center break-all">
-              {currentCode}
-            </p>
-          </div>
-          {lastUpdate && (
-            <p className="text-sm text-white/70 text-center">
-              Dernière màj: {formatDate(lastUpdate)}
-            </p>
-          )}
-        </motion.div>
-      )}
-
       <Button
         onClick={() => onModeChange("home")}
         className="w-full glass-effect text-white border-white/20 hover:bg-white/20"

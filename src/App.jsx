@@ -111,7 +111,7 @@ function App() {
     <div className="min-h-screen gradient-bg">
       <div className="container mx-auto px-4 py-6 max-w-md">
         <motion.div
-          className="text-center mb-8"
+          className="text-center mb-4"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
@@ -130,14 +130,20 @@ function App() {
           <div className="flex items-center justify-center gap-2 text-white/80">
             {isConnected ? (
               <>
-                <Wifi className="w-4 h-4 text-green-400" />
-                <span className="text-sm">Connecté</span>
+                <div className=" rounded-xl p-4">
+                  <div className="flex items-center justify-center gap-3 text-white">
+                    <div className="w-3 h-3 bg-green-400 rounded-full pulse-blue"></div>
+                    <span className="text-sm font-medium">En Direct</span>
+                  </div>
+                </div>
               </>
             ) : (
-              <>
-                <WifiOff className="w-4 h-4 text-red-400" />
-                <span className="text-sm">Déconnecté</span>
-              </>
+              <div className=" rounded-xl p-4">
+                <div className="flex items-center justify-center gap-3 text-white">
+                  <div className="w-3 h-3 bg-red-400 rounded-full pulse-blue"></div>
+                  <span className="text-sm font-medium">Pas en direct</span>
+                </div>
+              </div>
             )}
           </div>
         </motion.div>
